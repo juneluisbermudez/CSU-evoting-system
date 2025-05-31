@@ -17,10 +17,12 @@ export default function TabLayout() {
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
-        tabBarStyle: { display: 'none' },
+        tabBarStyle: {
+          display: 'none',
+        },
       }}>
       <Tabs.Screen
-        name="index"
+        name="admin"
         options={{
           title: 'Home',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
