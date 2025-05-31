@@ -51,5 +51,4 @@ Join our community of developers creating universal apps.
 
 
 Custom install:
-npm install lucide-react-native
 npx expo install expo-camera
