@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+    ActivityIndicator,
     Alert,
     FlatList,
     Image,
@@ -15,99 +16,33 @@ import {
     useColorScheme,
 } from 'react-native';
 
+import { supabase } from '../lib/supabase';
+
 type Candidate = {
   id: string;
   name: string;
   course: string;
   year: string;
   platform: string;
+  position_id: string;
 };
 
 type Position = {
   id: string;
   title: string;
   description: string;
+  max_selections: number;
   candidates: Candidate[];
-  maxSelections: number;
 };
-
-const positions: Position[] = [
-  {
-    id: 'president',
-    title: 'USG President',
-    description: 'Chief Executive Officer of the University Student Government',
-    maxSelections: 1,
-    candidates: [
-      { id: 'p1', name: 'Maria Elena Cruz', course: 'BSIT', year: '4th', platform: 'Digital Innovation & Student Empowerment' },
-      { id: 'p2', name: 'John Patrick Dela Cruz', course: 'BSCS', year: '3rd', platform: 'Unity Through Technology' },
-      { id: 'p3', name: 'Sarah Mae Gonzales', course: 'BSEd', year: '4th', platform: 'Educational Excellence & Student Welfare' },
-    ],
-  },
-  {
-    id: 'vice_president',
-    title: 'USG Vice President',
-    description: 'Assistant to the President and presides over the Student Senate',
-    maxSelections: 1,
-    candidates: [
-      { id: 'vp1', name: 'Mark Anthony Reyes', course: 'BSBA', year: '3rd', platform: 'Bridging Leadership & Service' },
-      { id: 'vp2', name: 'Anna Catherine Lim', course: 'BSN', year: '4th', platform: 'Health & Wellness Advocacy' },
-      { id: 'vp3', name: 'James Robert Santos', course: 'BSCE', year: '3rd', platform: 'Infrastructure & Development' },
-    ],
-  },
-  {
-    id: 'secretary',
-    title: 'USG Secretary',
-    description: 'Keeper of records and official correspondence',
-    maxSelections: 1,
-    candidates: [
-      { id: 's1', name: 'Kristine Joy Mendoza', course: 'BSIT', year: '2nd', platform: 'Transparency & Documentation' },
-      { id: 's2', name: 'Carl Michael Torres', course: 'BSCS', year: '2nd', platform: 'Digital Record Management' },
-    ],
-  },
-  {
-    id: 'treasurer',
-    title: 'USG Treasurer',
-    description: 'Financial officer responsible for student funds',
-    maxSelections: 1,
-    candidates: [
-      { id: 't1', name: 'Patricia Anne Villanueva', course: 'BSBA', year: '3rd', platform: 'Financial Transparency & Accountability' },
-      { id: 't2', name: 'Michael John Ramos', course: 'BSIT', year: '3rd', platform: 'Tech-Enabled Financial Management' },
-    ],
-  },
-  {
-    id: 'auditor',
-    title: 'USG Auditor',
-    description: 'Oversees financial transactions and maintains fiscal responsibility',
-    maxSelections: 1,
-    candidates: [
-      { id: 'a1', name: 'Angelica Marie Flores', course: 'BSBA', year: '2nd', platform: 'Financial Integrity & Oversight' },
-      { id: 'a2', name: 'Ryan Christopher Diaz', course: 'BSCS', year: '2nd', platform: 'Digital Audit Systems' },
-    ],
-  },
-  {
-    id: 'senators',
-    title: 'USG Senators',
-    description: 'Student representatives in the legislative body',
-    maxSelections: 5,
-    candidates: [
-      { id: 'sen1', name: 'Jessa Mae Aquino', course: 'BSEd', year: '2nd', platform: 'Student Rights & Advocacy' },
-      { id: 'sen2', name: 'Kenneth Paul Garcia', course: 'BSIT', year: '2nd', platform: 'Technology Integration' },
-      { id: 'sen3', name: 'Lovely Grace Morales', course: 'BSN', year: '3rd', platform: 'Health & Safety Initiatives' },
-      { id: 'sen4', name: 'Francis Xavier Tan', course: 'BSCE', year: '3rd', platform: 'Campus Infrastructure' },
-      { id: 'sen5', name: 'Rhea Marie Castillo', course: 'BSBA', year: '2nd', platform: 'Student Entrepreneurship' },
-      { id: 'sen6', name: 'Anthony Joseph Cruz', course: 'BSCS', year: '2nd', platform: 'Digital Student Services' },
-      { id: 'sen7', name: 'Kimberly Anne Lopez', course: 'BSEd', year: '3rd', platform: 'Academic Excellence' },
-      { id: 'sen8', name: 'Jeffrey Miguel Santos', course: 'BSIT', year: '3rd', platform: 'Innovation & Research' },
-    ],
-  },
-];
 
 export default function CSUVotingApp() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
-  
+
+  const [positions, setPositions] = useState<Position[]>([]);
   const [selectedCandidates, setSelectedCandidates] = useState<Record<string, string[]>>({});
   const [currentPosition, setCurrentPosition] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   const colors = {
     primary: '#285D34',
@@ -125,21 +60,57 @@ export default function CSUVotingApp() {
     error: '#EF4444',
   };
 
+  const fetchPositionsAndCandidates = useCallback(async () => {
+    setLoading(true);
+
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
+    const since = twelveMonthsAgo.toISOString();
+
+    const { data: positionsData, error: posErr } = await supabase
+      .from('positions')
+      .select('*');
+
+    const { data: candidatesData, error: candErr } = await supabase
+      .from('candidates')
+      .select('*')
+      .gte('created_at', since);
+
+    if (posErr || candErr) {
+      Alert.alert('Error', 'Failed to fetch data from Supabase.');
+      console.error(posErr || candErr);
+      setLoading(false);
+      return;
+    }
+
+    const positionsWithCandidates: Position[] = positionsData.map((position: any) => ({
+      ...position,
+      candidates: candidatesData.filter((c: Candidate) => c.position_id === position.id),
+    }));
+
+    setPositions(positionsWithCandidates);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchPositionsAndCandidates();
+  }, []);
+
   const handleCandidateSelect = (positionId: string, candidateId: string) => {
     const position = positions.find(p => p.id === positionId);
     if (!position) return;
 
     setSelectedCandidates(prev => {
       const current = prev[positionId] || [];
-      
+
       if (current.includes(candidateId)) {
         return {
           ...prev,
           [positionId]: current.filter(id => id !== candidateId)
         };
       } else {
-        if (current.length >= position.maxSelections) {
-          if (position.maxSelections === 1) {
+        if (current.length >= position.max_selections) {
+          if (position.max_selections === 1) {
             return {
               ...prev,
               [positionId]: [candidateId]
@@ -147,7 +118,7 @@ export default function CSUVotingApp() {
           } else {
             Alert.alert(
               'Maximum Selection Reached',
-              `You can only select up to ${position.maxSelections} candidates for ${position.title}.`
+              `You can only select up to ${position.max_selections} candidates for ${position.title}.`
             );
             return prev;
           }
@@ -159,26 +130,36 @@ export default function CSUVotingApp() {
       }
     });
   };
+  const getCurrentSchoolYear = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth() + 1;
+
+  // Academic year typically starts in June
+  const startYear = month >= 6 ? year : year - 1;
+  const endYear = startYear + 1;
+
+  return `${startYear}–${endYear}`;
+};
+
+const schoolYear = getCurrentSchoolYear();
+
 
   const handleSubmitVote = () => {
-    const incompletePositions = positions.filter(position => {
-      const selected = selectedCandidates[position.id] || [];
-      return selected.length === 0;
-    });
+    const incomplete = positions.filter(p => (selectedCandidates[p.id] || []).length === 0);
 
-    if (incompletePositions.length > 0) {
+    if (incomplete.length > 0) {
       Alert.alert(
         'Incomplete Ballot',
-        `Please select candidates for: ${incompletePositions.map(p => p.title).join(', ')}`,
+        `Please select candidates for: ${incomplete.map(p => p.title).join(', ')}`,
         [
           { text: 'Continue Voting', style: 'cancel' },
           { text: 'Submit Anyway', onPress: confirmSubmit, style: 'destructive' }
         ]
       );
-      return;
+    } else {
+      confirmSubmit();
     }
-
-    confirmSubmit();
   };
 
   const confirmSubmit = () => {
@@ -203,8 +184,8 @@ export default function CSUVotingApp() {
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Submit Vote', onPress: () => {
-          Alert.alert('Vote Submitted', 'Thank you for participating in the CSU USG Elections!');
-          // TODO: Submit to backend
+          Alert.alert('Vote Submitted', 'Thank you for participating!');
+          // TODO: Save to Supabase history
         }}
       ]
     );
@@ -213,12 +194,12 @@ export default function CSUVotingApp() {
   const renderCandidate = ({ item }: { item: Candidate }) => {
     const position = positions[currentPosition];
     const isSelected = selectedCandidates[position.id]?.includes(item.id) || false;
-    
+
     return (
       <TouchableOpacity
         style={[
           styles.candidateCard,
-          { 
+          {
             backgroundColor: colors.surface,
             borderColor: isSelected ? colors.primary : colors.border,
             borderWidth: isSelected ? 2 : 1,
@@ -231,16 +212,14 @@ export default function CSUVotingApp() {
       >
         <View style={styles.candidateHeader}>
           <View style={styles.candidateInfo}>
-            <Text style={[styles.candidateName, { color: colors.text }]}>
-              {item.name}
-            </Text>
+            <Text style={[styles.candidateName, { color: colors.text }]}>{item.name}</Text>
             <Text style={[styles.candidateDetails, { color: colors.textSecondary }]}>
               {item.course} • {item.year} Year
             </Text>
           </View>
           <View style={[
             styles.selectionIndicator,
-            { 
+            {
               backgroundColor: isSelected ? colors.primary : 'transparent',
               borderColor: isSelected ? colors.primary : colors.border,
             }
@@ -265,7 +244,7 @@ export default function CSUVotingApp() {
   const renderPositionTab = (position: Position, index: number) => {
     const isActive = index === currentPosition;
     const hasSelection = selectedCandidates[position.id]?.length > 0;
-    
+
     return (
       <TouchableOpacity
         key={position.id}
@@ -293,13 +272,28 @@ export default function CSUVotingApp() {
     );
   };
 
-  const currentPos = positions[currentPosition];
+  const currentPos = positions[currentPosition] || {
+    id: '',
+    title: '',
+    description: '',
+    max_selections: 1,
+    candidates: [],
+  };
   const selectedCount = selectedCandidates[currentPos.id]?.length || 0;
+
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={{ marginTop: 10, color: colors.text }}>Loading positions...</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
-      
+
       <LinearGradient
         colors={[colors.primary, colors.secondary, colors.tertiary]}
         start={{ x: 0, y: 0 }}
@@ -315,29 +309,20 @@ export default function CSUVotingApp() {
               />
             </View>
           </View>
-          <Text style={styles.headerTitle}>CSU USG Elections 2024</Text>
+          <Text style={styles.headerTitle}>CSU USG Elections {schoolYear}</Text>
           <Text style={styles.headerSubtitle}>Choose Your Student Leaders</Text>
         </View>
       </LinearGradient>
 
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabContainer}
-        contentContainerStyle={styles.tabContent}
-      >
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabContainer} contentContainerStyle={styles.tabContent}>
         {positions.map(renderPositionTab)}
       </ScrollView>
 
       <View style={[styles.positionHeader, { backgroundColor: colors.surface }]}>
-        <Text style={[styles.positionTitle, { color: colors.text }]}>
-          {currentPos.title}
-        </Text>
-        <Text style={[styles.positionDescription, { color: colors.textSecondary }]}>
-          {currentPos.description}
-        </Text>
+        <Text style={[styles.positionTitle, { color: colors.text }]}>{currentPos.title}</Text>
+        <Text style={[styles.positionDescription, { color: colors.textSecondary }]}>{currentPos.description}</Text>
         <Text style={[styles.selectionInfo, { color: colors.gold }]}>
-          {selectedCount}/{currentPos.maxSelections} selected
+          {selectedCount}/{currentPos.max_selections} selected
         </Text>
       </View>
 
