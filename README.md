@@ -52,3 +52,8 @@ Join our community of developers creating universal apps.
 
 Custom install:
 npx expo install expo-camera
+
+## Blockchain
+Create metamask wallet
+Installed Hardhat for smart contrat compiling
+Used Polygon Amoy
