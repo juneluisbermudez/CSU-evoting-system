@@ -2,21 +2,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Image,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-    useColorScheme,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useColorScheme,
 } from 'react-native';
 
+// Update the path below to the correct relative path to your supabase client file
 import { supabase } from '../lib/supabase';
+
 
 type Candidate = {
   id: string;
@@ -43,6 +46,9 @@ export default function CSUVotingApp() {
   const [selectedCandidates, setSelectedCandidates] = useState<Record<string, string[]>>({});
   const [currentPosition, setCurrentPosition] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showIncompleteModal, setShowIncompleteModal] = useState(false);
+
 
   const colors = {
     primary: '#285D34',
@@ -58,6 +64,7 @@ export default function CSUVotingApp() {
     success: '#10B981',
     warning: '#F59E0B',
     error: '#EF4444',
+    overlay: 'rgba(0, 0, 0, 0.5)',
   };
 
   const fetchPositionsAndCandidates = useCallback(async () => {
@@ -116,10 +123,6 @@ export default function CSUVotingApp() {
               [positionId]: [candidateId]
             };
           } else {
-            Alert.alert(
-              'Maximum Selection Reached',
-              `You can only select up to ${position.max_selections} candidates for ${position.title}.`
-            );
             return prev;
           }
         }
@@ -130,65 +133,41 @@ export default function CSUVotingApp() {
       }
     });
   };
+
   const getCurrentSchoolYear = () => {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth() + 1;
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth() + 1;
 
-  // Academic year typically starts in June
-  const startYear = month >= 6 ? year : year - 1;
-  const endYear = startYear + 1;
+    // Academic year typically starts in June
+    const startYear = month >= 6 ? year : year - 1;
+    const endYear = startYear + 1;
 
-  return `${startYear}–${endYear}`;
-};
+    return `${startYear}–${endYear}`;
+  };
 
-const schoolYear = getCurrentSchoolYear();
-
+  const schoolYear = getCurrentSchoolYear();
 
   const handleSubmitVote = () => {
     const incomplete = positions.filter(p => (selectedCandidates[p.id] || []).length === 0);
 
     if (incomplete.length > 0) {
-      Alert.alert(
-        'Incomplete Ballot',
-        `Please select candidates for: ${incomplete.map(p => p.title).join(', ')}`,
-        [
-          { text: 'Continue Voting', style: 'cancel' },
-          { text: 'Submit Anyway', onPress: confirmSubmit, style: 'destructive' }
-        ]
-      );
-    } else {
-      confirmSubmit();
-    }
+  setShowIncompleteModal(true);
+} else {
+  setShowConfirmModal(true);
+}
+
   };
 
-  const confirmSubmit = () => {
-    let summary = 'Your votes:\n\n';
-    positions.forEach(position => {
-      const selected = selectedCandidates[position.id] || [];
-      if (selected.length > 0) {
-        summary += `${position.title}:\n`;
-        selected.forEach(candidateId => {
-          const candidate = position.candidates.find(c => c.id === candidateId);
-          if (candidate) {
-            summary += `• ${candidate.name} (${candidate.course})\n`;
-          }
-        });
-        summary += '\n';
-      }
-    });
+  const confirmSubmit = async () => {
+    setShowConfirmModal(false);
+    Alert.alert('Vote Submitted', 'Thank you for participating!');
+    
+    const voteData = positions.map(p => ({
+      position_id: p.id,
+      candidate_ids: selectedCandidates[p.id] || []
+    }));
 
-    Alert.alert(
-      'Confirm Your Vote',
-      summary,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Submit Vote', onPress: () => {
-          Alert.alert('Vote Submitted', 'Thank you for participating!');
-          // TODO: Save to Supabase history
-        }}
-      ]
-    );
   };
 
   const renderCandidate = ({ item }: { item: Candidate }) => {
@@ -272,6 +251,181 @@ const schoolYear = getCurrentSchoolYear();
     );
   };
 
+const renderConfirmModal = () => {
+  const positionsWithSelections = positions.filter(p => (selectedCandidates[p.id] || []).length > 0);
+
+  return (
+    <Modal
+      visible={showConfirmModal}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => setShowConfirmModal(false)}
+    >
+      <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+        <View style={[styles.modalContainer, { backgroundColor: colors.surface }]}>
+          <View style={styles.modalHeader}>
+            <LinearGradient
+              colors={[colors.primary, colors.tertiary]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.modalHeaderGradient}
+            >
+              <Ionicons name="finger-print" size={24} color="white" />
+              <Text style={styles.modalTitle}>Confirm Your Vote</Text>
+            </LinearGradient>
+          </View>
+
+          <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+            <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
+              Please review your selections before submitting:
+            </Text>
+
+            {positionsWithSelections.map(position => {
+              const selected = selectedCandidates[position.id] || [];
+              return (
+                <View key={position.id} style={[styles.voteSection, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.voteSectionTitle, { color: colors.primary }]}>
+                    {position.title}
+                  </Text>
+                  {selected.map(candidateId => {
+                    const candidate = position.candidates.find(c => c.id === candidateId);
+                    if (!candidate) return null;
+                    return (
+                      <View key={candidateId} style={styles.selectedCandidateItem}>
+                        <View style={[styles.candidateCheckmark, { backgroundColor: colors.success }]}>
+                          <Ionicons name="checkmark" size={12} color="white" />
+                        </View>
+                        <View style={styles.candidateItemInfo}>
+                          <Text style={[styles.candidateItemName, { color: colors.text }]}>
+                            {candidate.name}
+                          </Text>
+                          <Text style={[styles.candidateItemDetails, { color: colors.textSecondary }]}>
+                            {candidate.course} • {candidate.year} Year
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            })}
+
+            {positionsWithSelections.length === 0 && (
+              <View style={styles.emptySelectionContainer}>
+                <Ionicons name="alert-circle" size={48} color={colors.warning} />
+                <Text style={[styles.emptySelectionText, { color: colors.textSecondary }]}>
+                  No candidates selected
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+
+          <View style={styles.modalFooter}>
+            <TouchableOpacity
+              style={[styles.modalButton, styles.cancelButton, { backgroundColor: colors.border }]}
+              onPress={() => setShowConfirmModal(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.cancelButtonText, { color: colors.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.modalButton, styles.confirmButton]}
+              onPress={confirmSubmit}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={[colors.primary, colors.accent]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.confirmButtonGradient}
+              >
+                <Ionicons name="paper-plane" size={16} color="white" />
+                <Text style={styles.confirmButtonText}>Submit Vote</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const renderIncompleteModal = () => {
+  const incompletePositions = positions.filter(p => (selectedCandidates[p.id] || []).length === 0);
+
+  return (
+    <Modal
+      visible={showIncompleteModal}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => setShowIncompleteModal(false)}
+    >
+      <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+        <View style={[styles.modalContainer, { backgroundColor: colors.surface }]}>
+          <View style={styles.modalHeader}>
+            <LinearGradient
+              colors={[colors.warning, colors.accent]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.modalHeaderGradient}
+            >
+              <Ionicons name="alert-circle" size={24} color="white" />
+              <Text style={styles.modalTitle}>Incomplete Ballot</Text>
+            </LinearGradient>
+          </View>
+
+          <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+            <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
+              You haven&apos;t selected candidates for the following positions:
+            </Text>
+
+            {incompletePositions.map(position => (
+              <View key={position.id} style={[styles.voteSection, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.voteSectionTitle, { color: colors.error }]}>
+                  {position.title}
+                </Text>
+                <Text style={[styles.candidateItemDetails, { color: colors.textSecondary }]}>
+                  {position.description}
+                </Text>
+              </View>
+            ))}
+          </ScrollView>
+
+          <View style={styles.modalFooter}>
+            <TouchableOpacity
+              style={[styles.modalButton, styles.cancelButton, { backgroundColor: colors.border }]}
+              onPress={() => setShowIncompleteModal(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.cancelButtonText, { color: colors.textSecondary }]}>Continue Voting</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.modalButton, styles.confirmButton]}
+              onPress={() => {
+                setShowIncompleteModal(false);
+                setShowConfirmModal(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={[colors.warning, colors.tertiary]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.confirmButtonGradient}
+              >
+                <Ionicons name="checkmark-circle" size={16} color="white" />
+                <Text style={styles.confirmButtonText}>Submit Anyway</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
   const currentPos = positions[currentPosition] || {
     id: '',
     title: '',
@@ -285,7 +439,7 @@ const schoolYear = getCurrentSchoolYear();
     return (
       <SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ marginTop: 10, color: colors.text }}>Loading positions...</Text>
+        <Text style={{ marginTop: 10, color: colors.text }}>Loading Candidates...</Text>
       </SafeAreaView>
     );
   }
@@ -352,6 +506,9 @@ const schoolYear = getCurrentSchoolYear();
           </LinearGradient>
         </TouchableOpacity>
       </View>
+
+      {renderConfirmModal()}
+      {renderIncompleteModal()}
     </SafeAreaView>
   );
 }
@@ -532,5 +689,130 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 8,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  modalContainer: {
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '80%',
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalHeader: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    overflow: 'hidden',
+  },
+  modalHeaderGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'white',
+    marginLeft: 8,
+  },
+  modalContent: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    maxHeight: 300,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  voteSection: {
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+  },
+  voteSectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  selectedCandidateItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  candidateCheckmark: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  candidateItemInfo: {
+    flex: 1,
+  },
+  candidateItemName: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  candidateItemDetails: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  emptySelectionContainer: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  emptySelectionText: {
+    fontSize: 16,
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    padding: 20,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  modalButton: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  cancelButton: {
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  confirmButton: {
+    // No background color here as it's handled by the gradient
+  },
+  confirmButtonGradient: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  confirmButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 6,
   },
 });
